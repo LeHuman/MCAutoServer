@@ -13,7 +13,7 @@
         {
             "label": "Test Version",
             "type": "shell",
-            "command": "./GetMod.sh -V -n lithium -r -v 1.2",
+            "command": "./GetMod.sh -V -n lithium -r -v 1.16.2",
             "problemMatcher": [],
             "group": "test"
         },
