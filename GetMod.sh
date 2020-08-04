@@ -15,11 +15,8 @@ mod_dir="/"
 verbose=0
 
 # api vars
-api_cur_val="https://api.cfwidget.com/minecraft/mc-mods/"
-api_cur_entry_name=".title"
-api_cur_entry_vers=".versions| .[] "
-api_cur_entry_id=".version"
-api_cur_entry_if=".url"
+api_cur_call="https://api.cfwidget.com/minecraft/mc-mods/"
+api_cur_query=".download | [.display, .version, .url]"
 api_cur_val=""
 api_moj_call="https://launchermeta.mojang.com/mc/game/version_manifest.json"
 api_moj_entry_latest=".latest.release"
@@ -227,8 +224,8 @@ getApi(){ # TODO: throw error when curl errors
     cur)
         echo "Waiting for Curse API"
         log "Querying Curse API for mod: $2, $3"
-        api_cur_val=$(curl -s "$api_cur_val$2/?version=$3")
-        log "Got mod Info"
+        api_cur_val=$(curl -s "$api_cur_call$2/?version=$3")
+        log "Api value stored"
         return 1
         ;;
     moj)
@@ -253,8 +250,6 @@ getApiVal(){ # TODO: Test blank/bad $2
             log "Retrieving curse api value: $2"
             val=$(jq -n "$api_cur_val" | jq "$2")
             returnVal="$val"
-        else
-            log "Failed to find curse api value: $2"
         fi
         ;;
     moj)
@@ -262,13 +257,12 @@ getApiVal(){ # TODO: Test blank/bad $2
             log "Retrieving mojang api value: $2"
             val=$(jq -n "$api_moj_val" | jq "$2")
             returnVal="$val"
-        else
-            log "Failed to find mojang api value: $2"
         fi
         ;;
     esac
     if [[ -z "$val" || "$val" == "null" ]]; then
-        returnVal=""
+        returnVal=""        
+        log "Failed to find api value: $2"
     fi
 }
 
@@ -363,16 +357,54 @@ getMojangVer(){
         echo "Failed to verify MC version"
         exit 0
     else
-        MC_ver=${MC_ver:1:${#MC_ver}-2}
+        MC_ver=${MC_ver:1:${#MC_ver}-2} 
         log "$MC_ver"
     fi
 }
 
+mod_found_name=""
+mod_found_ver=""
+mod_found_url=""
+foundMod=0
+
+testModVer(){
+    local ver=$1
+    foundMod=0
+
+    log "Matching mod $ver to version $MC_ver"
+
+    if [[ "$ver" == "$MC_ver" ]]; then
+        foundMod=1
+        log "Mod matches version $MC_ver exactly"
+    elif [[ "$ver" =~ "$MC_ver_non"-pre[1-9][0-9]*$ ]]; then
+        foundMod=1
+        log "Mod matches general prerelease version $MC_ver_non"
+    elif [[ "$ver" =~ "$MC_ver_non"[1-9][0-9]*$ ]]; then
+        foundMod=1
+        log "Mod matches non prerelease version $MC_ver_non"
+    elif [[ "$ver" =~ "$MC_ver_maj"[.]{0,1}[0-9]*$ ]]; then
+        foundMod=1
+        log "Mod matches major version $MC_ver_maj"
+    else
+        log "Failed to match mod to MC version"
+    fi
+
+}
+
 getMod(){
     local mod=$1
-    getApi "$curseAPI" "$mod" "$MC_ver"
-    matchVer "$curseAPI" "$api_cur_entry_vers" "$api_cur_entry_id" "$MC_ver" "$MC_ver_non" "$MC_ver_maj" "$api_cur_entry_if"
-    # .versions  | with_entries(select(.key|test("1.16"))) | .[] | map(select(.version|test("^1.16"))) [0]
+    local ver=$2
+    mod_found_name=""
+    mod_found_ver=""
+    mod_found_url=""
+
+    getApi "$curseAPI" "$mod" "$ver"
+    getApiVal "$curseAPI" "$api_cur_query"
+    mod_found_name="$( jq -n "$returnVal" | jq  --raw-output .[0] )"
+    mod_found_ver="$( jq -n "$returnVal" | jq --raw-output .[1] )"
+    mod_found_url="$( jq -n "$returnVal" | jq --raw-output .[2] )"
+
+    testModVer "$mod_found_ver"
 }
 
 getMojangVer $version
@@ -398,11 +430,21 @@ log "Major MC Ver: $MC_ver_maj.x"
 
 log
 
-getMod $mod_name
+getMod $mod_name "$MC_ver"
 
-if [[ $hasVersion -eq 1 ]]; then
-    echo "Found mod: $returnVal"
-    if [[ $notExact -eq 1 ]]; then
-        echo "Warning: It is not the exact version"
-    fi
+if [[ foundMod -eq 0 ]]; then
+    log "Could not find mod, retrying nonPre"
+    getMod $mod_name "$MC_ver_non"
+fi
+
+if [[ foundMod -eq 0 ]]; then
+    log "Could not find mod, retrying major"
+    getMod $mod_name "$MC_ver_maj"
+fi
+
+if [[ foundMod -eq 1 ]]; then
+    echo "Got Mod $mod_found_name   Ver: $mod_found_ver"
+    foundMod=1
+else
+    echo "Failed to find mod $mod_name $MC_ver"
 fi
