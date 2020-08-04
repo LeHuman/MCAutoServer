@@ -18,6 +18,8 @@ verbose=0
 api_cur_val="https://api.cfwidget.com/minecraft/mc-mods/"
 api_cur_entry_name=".title"
 api_cur_entry_vers=".versions| .[] "
+api_cur_entry_id=".version"
+api_cur_entry_if=".url"
 api_cur_val=""
 api_moj_call="https://launchermeta.mojang.com/mc/game/version_manifest.json"
 api_moj_entry_latest=".latest.release"
@@ -29,7 +31,6 @@ curseAPI="cur"
 
 # instance vars
 returnVal=""
-mod_title=""
 MC_ver=""
 MC_ver_maj=""
 MC_ver_non=""
@@ -225,8 +226,8 @@ getApi(){ # TODO: throw error when curl errors
     case "$1" in
     cur)
         echo "Waiting for Curse API"
-        log "Querying Curse API for mod: $2"
-        api_cur_val=$(curl -s "$api_cur_val$2")
+        log "Querying Curse API for mod: $2, $3"
+        api_cur_val=$(curl -s "$api_cur_val$2/?version=$3")
         log "Got mod Info"
         return 1
         ;;
@@ -245,6 +246,7 @@ getApi(){ # TODO: throw error when curl errors
 }
 
 getApiVal(){ # TODO: Test blank/bad $2 
+    local val=""
     case "$1" in
     cur)
         if [[ -n "$api_cur_val" && -n "$2" ]]; then
@@ -282,26 +284,27 @@ matchVer(){
     local ver=$4
     local ver_non=$5
     local ver_maj=$6
+    local info=$7
 
     returnVal=0
     hasVersion=0
     notExact=0
 
     log "Matching version $ver"
-    getApiVal "$api" "$api_moj_entry_vers | map(select($selecter==\""$ver"\"))[0] | .id"
+    getApiVal "$api" "$focus | map(select($selecter==\""$ver"\$\"))[0] | $info"
     if [[ strict -eq 0 ]]; then # Skip if strict mode is on
         if [[ -z "$returnVal" ]]; then # An exact valid version was not found
             log "Exact version match not found"
             if [[ version_is_rc -eq 1 ]]; then # Check all releaseCans | Will only check if given version is also a releaseCan
                 log "Checking general release candidates"
-                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-rc"\")))[0] | .id"
+                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-rc"\")))[0] | $info"
                 if [[ -n "$returnVal" ]]; then
                     hasVersion=1
                     notExact=1
                     log "Latest release candidate found"
                 else
                     log "General release candidate not found, checking for a major release" # Major releases are checked instead of prereleases as that may cause more trouble
-                    getApiVal "$api" "$focus | map(select($selecter==\""$ver_non"\"))[0] | .id"
+                    getApiVal "$api" "$focus | map(select($selecter==\""$ver_non"\"))[0] | $info"
                     if [[ -n "$returnVal" ]]; then
                         hasVersion=1
                         notExact=1
@@ -311,14 +314,14 @@ matchVer(){
             fi
             if [[ version_is_pre -eq 1 ]]; then # Check all prereleases | Will only check here if given version is also a prerelease
                 log "Checking general prereleases"
-                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-pre"\")))[0] | .id"
+                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-pre"\")))[0] | $info"
                 if [[ -n "$returnVal" ]]; then
                     hasVersion=1
                     notExact=1
                     log "Latest prerelease found"
                 else
                     log "general prereleases not found, checking non prerelease"
-                    getApiVal "$api" "$focus | map(select($selecter==\""$ver_non"\"))[0] | .id"
+                    getApiVal "$api" "$focus | map(select($selecter==\""$ver_non"\"))[0] | $info"
                     if [[ -n "$returnVal" ]]; then
                         hasVersion=1
                         notExact=1
@@ -328,7 +331,7 @@ matchVer(){
             fi
             if [[ version_is_rc -eq 0 && -z "$returnVal" ]]; then # Don't check if version was found by prereleases or if looking for rcs
                 log "Checking latest minor release versions"
-                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_maj.[0-9]+"\")))[0] | .id"
+                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_maj.[0-9]+"\")))[0] | $info"
                 if [[ -n "$returnVal" ]]; then
                     hasVersion=1
                     notExact=1
@@ -352,7 +355,7 @@ getMojangVer(){
         hasVersion=1
     elif [[ -n "$1" ]]; then
         log "Verifying version $1"
-        matchVer "$mojangAPI" "$api_moj_entry_vers" "$api_moj_entry_id" "$1" "$version_nonPre" "$version_major"
+        matchVer "$mojangAPI" "$api_moj_entry_vers" "$api_moj_entry_id" "$1" "$version_nonPre" "$version_major" "$api_moj_entry_id"
         MC_ver="$returnVal"
     fi
 
@@ -363,6 +366,13 @@ getMojangVer(){
         MC_ver=${MC_ver:1:${#MC_ver}-2}
         log "$MC_ver"
     fi
+}
+
+getMod(){
+    local mod=$1
+    getApi "$curseAPI" "$mod" "$MC_ver"
+    matchVer "$curseAPI" "$api_cur_entry_vers" "$api_cur_entry_id" "$MC_ver" "$MC_ver_non" "$MC_ver_maj" "$api_cur_entry_if"
+    # .versions  | with_entries(select(.key|test("1.16"))) | .[] | map(select(.version|test("^1.16"))) [0]
 }
 
 getMojangVer $version
@@ -386,7 +396,13 @@ log "Target MC Ver: $MC_ver"
 log "NonPre MC Ver: $MC_ver_non"
 log "Major MC Ver: $MC_ver_maj.x"
 
-# getApi "$curseAPI" "$mod_name"
-# getApiVal "$curseAPI"
-# mod_name=
-# echo "Found mod: $mod_name"
+log
+
+getMod $mod_name
+
+if [[ $hasVersion -eq 1 ]]; then
+    echo "Found mod: $returnVal"
+    if [[ $notExact -eq 1 ]]; then
+        echo "Warning: It is not the exact version"
+    fi
+fi
