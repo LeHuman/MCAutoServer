@@ -13,10 +13,12 @@ backup=0
 replace=0
 mod_dir="/"
 verbose=0
+timeout=2
 
 # api vars
 api_cur_call="https://api.cfwidget.com/minecraft/mc-mods/"
-api_cur_query=".download | [.display, .version, .url]"
+api_cur_down="https://media.forgecdn.net/files"
+api_cur_query=".download | [.name, .version, .id]"
 api_cur_val=""
 api_moj_call="https://launchermeta.mojang.com/mc/game/version_manifest.json"
 api_moj_entry_latest=".latest.release"
@@ -33,20 +35,23 @@ MC_ver_maj=""
 MC_ver_non=""
 
 usage="
-$(basename "$FUNCNAME")[-h] [-n name] [-v ver] [-d dir] [-r] [-c] [-u] [-b] [-s] [-m] [-V]
+$0 [-h] [-n name] [-v ver] [-d dir] [-t sec] [-r] [-c] [-u] [-b] [-s] [-m] [-V]
 
-Download Minecraft mods from curseforge
-specific mods or update a folder of mods
-Specifying what MC version attempts to target the closest version that is probably okay for mods
+Download Minecraft specific mods or update a folder of mods from curseforge
+Specifying what MC version attempts to target the closest version
 
 Alpha/Beta/snapshot versions not supported
     will not be updated or taken into account when searching
 
+Currently, mod dependancies are not resolved
+
 where:
     -h  Show this help text
-    -n	Specify mod name/s (seperated by a space, mod names must be the exact name on their url)
+    -n	Specify mod name, must be same as in mod url
+            For multiple mods, surround in quotes
     -v	Specify MC version (Default: latest)
     -d	Specify a working directory
+    -t  Specify Api request delay in seconds (Default: 2)
     -r	Redownload and replace mods (Default:false)
     -c	Only show changes (Default:false)
     -u	Update mods in working directory (Default:false)
@@ -56,9 +61,17 @@ where:
     "
 
 log(){
-    if [ verbose ]; then
+    if [[ verbose -eq 1 ]]; then
          echo $@
     fi
+}
+
+newModEntry(){
+
+    local name=$1
+
+    returnVal=()
+
 }
 
 while getopts "h?rcmusbVv:n:d:" opt; do
@@ -71,8 +84,8 @@ while getopts "h?rcmusbVv:n:d:" opt; do
         log "Version: $version"
 	    latest=0
         ;;
-    n)  mod_name=$OPTARG
-        log "Mod Name: $mod_name"
+    n)  mods=($OPTARG)
+        log "Mod Names: ${mods[*]}"
         ;;
 	r)  replace=1
         log "Replacing Files"
@@ -93,12 +106,26 @@ while getopts "h?rcmusbVv:n:d:" opt; do
         log "Versioning set to strict"
 		;;	
     V)  verbose=1
+        log "VERBOSE MODE ENABLED"
         ;;	
     esac
 done
 shift $((OPTIND - 1)) # somthin somthin, I dunno
 
-log #Cleiyn
+if [[ -z "$mods"  ]]; then
+    echo "Mod names can't be blank!"
+    echo "$usage"
+    exit 0
+fi
+
+wait() {
+    echo -n "Waiting for request buffer"
+    for i in $(seq 1 $timeout); do
+        echo -n "."
+        sleep 1
+    done
+    echo
+}
 
 cut=0
 preCut=0
@@ -222,9 +249,10 @@ log
 getApi(){ # TODO: throw error when curl errors
     case "$1" in
     cur)
+        wait
         echo "Waiting for Curse API"
         log "Querying Curse API for mod: $2, $3"
-        api_cur_val=$(curl -s "$api_cur_call$2/?version=$3")
+        api_cur_val=$(curl -LsS "$api_cur_call$2/?version=$3")
         log "Api value stored"
         return 1
         ;;
@@ -232,7 +260,7 @@ getApi(){ # TODO: throw error when curl errors
         if [[ -z "$api_moj_val" ]]; then
             echo "Waiting for Mojang API"
             log "Querying Mojang API for versions"
-            api_moj_val=$(curl -s "$api_moj_call")
+            api_moj_val=$(curl -sS "$api_moj_call")
             log "Mojang versions cached"
             return 1
         fi
@@ -367,6 +395,15 @@ mod_found_ver=""
 mod_found_url=""
 foundMod=0
 
+getModLink(){
+    local name=$1
+    local id=$2
+    local id_maj=${id:0:4}
+    local id_min=${id:4:${#id}}
+
+    returnVal="$api_cur_down/$id_maj/$id_min/$name"
+}
+
 testModVer(){
     local ver=$1
     foundMod=0
@@ -398,14 +435,36 @@ getMod(){
     mod_found_ver=""
     mod_found_url=""
 
+    log "Getting mod $mod version $ver"
+
     getApi "$curseAPI" "$mod" "$ver"
     getApiVal "$curseAPI" "$api_cur_query"
     mod_found_name="$( jq -n "$returnVal" | jq  --raw-output .[0] )"
     mod_found_ver="$( jq -n "$returnVal" | jq --raw-output .[1] )"
-    mod_found_url="$( jq -n "$returnVal" | jq --raw-output .[2] )"
+
+    getModLink "$mod_found_name" "$( jq -n "$returnVal" | jq --raw-output .[2] )"
+    mod_found_url="$returnVal"
 
     testModVer "$mod_found_ver"
 }
+
+curl_err=0
+
+downloadMod(){
+    local name=$1
+    local url=$2
+    local curl_err_msg=""
+    curl_err=0
+
+    wait
+    echo "Downloading mod $name"
+    curl_err_msg=$(curl -sS $url -o $name)
+    if [[ -z "$curl_err_msg" ]]; then
+        log "$curl_err_msg"
+        curl_err=1
+    fi
+}
+
 
 getMojangVer $version
 
@@ -444,7 +503,12 @@ fi
 
 if [[ foundMod -eq 1 ]]; then
     echo "Got Mod $mod_found_name   Ver: $mod_found_ver"
+    log "URL: $mod_found_url"
     foundMod=1
 else
     echo "Failed to find mod $mod_name $MC_ver"
+fi
+
+if [[ foundMod -eq 1 ]]; then
+    downloadMod "$mod_name" "$mod_found_url"
 fi

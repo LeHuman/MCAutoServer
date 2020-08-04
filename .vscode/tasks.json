@@ -6,7 +6,7 @@
         {
             "label": "Test Default",
             "type": "shell",
-            "command": "./GetMod.sh -n lithium -V",
+            "command": "./GetMod.sh -Vn lithium",
             "problemMatcher": [],
             "group": "test"
         },
@@ -21,6 +21,13 @@
             "label": "Test Old Version",
             "type": "shell",
             "command": "./GetMod.sh -V -n lithium -r -v 1.2",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "Test Multiple",
+            "type": "shell",
+            "command": "./GetMod.sh -V -n \"lithium AutoRegLib iron-chests phosphor\" -r -v 1.16.2",
             "problemMatcher": [],
             "group": "test"
         }
