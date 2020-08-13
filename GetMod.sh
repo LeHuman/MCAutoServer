@@ -5,6 +5,7 @@ OPTIND=1         # Reset in case getopts has been used previously in the shell
 
 # init vars
 mods=()
+mod_final=()
 mod_name=""
 version=""
 latest=1
@@ -68,11 +69,31 @@ log(){
 
 newModEntry(){
 
-    local name=$1
+    local name="$1"
+    local state="$2"
+    local id="$3"
+    local ver="$4"
+    local url="$5"
 
-    returnVal=()
+    # Is this how it's done?
+    local JSONStr="
+    {
+        \"name\": \"$name\",
+        \"success\": \"$state\",
+        \"id\": \"$id\",
+        \"version\": \"$ver\",
+        \"download\": \"$url\"
+    }"
 
+    JSONStr=$(jq -n "$JSONStr")
+
+    echo "New Final Mod status $JSONStr"
+
+    mod_final[${#mod_final[@]}]="$JSONStr"
 }
+
+newModEntry "lithlium" "Fsdf" "fsd" "fsd" "fdsfs"
+exit 0
 
 while getopts "h?rcmusbVv:n:d:" opt; do
     case "$opt" in
@@ -487,7 +508,7 @@ log "Target MC Ver: $MC_ver"
 log "NonPre MC Ver: $MC_ver_non"
 log "Major MC Ver: $MC_ver_maj.x"
 
-log
+log "Beginning to check mods"
 
 getMod $mod_name "$MC_ver"
 
