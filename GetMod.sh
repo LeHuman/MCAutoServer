@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # A POSIX variable
-OPTIND=1         # Reset in case getopts has been used previously in the shell
+OPTIND=1 # Reset in case getopts has been used previously in the shell
 
 # init vars
 mods=()
@@ -61,13 +61,13 @@ where:
     -V  verbose mode
     "
 
-log(){
+log() {
     if [[ verbose -eq 1 ]]; then
-         echo $@
+        echo $@
     fi
 }
 
-newModEntry(){
+newModEntry() {
 
     local name="$1"
     local state="$2"
@@ -97,43 +97,52 @@ exit 0
 
 while getopts "h?rcmusbVv:n:d:" opt; do
     case "$opt" in
-    h|\?)
+    h | \?)
         echo "$usage"
         exit 0
         ;;
-    v)  version=$OPTARG
+    v)
+        version=$OPTARG
         log "Version: $version"
-	    latest=0
+        latest=0
         ;;
-    n)  mods=($OPTARG)
+    n)
+        mods=($OPTARG)
         log "Mod Names: ${mods[*]}"
         ;;
-	r)  replace=1
+    r)
+        replace=1
         log "Replacing Files"
         ;;
-	c)  check=1
+    c)
+        check=1
         log "Read only mode"
-		;;
-	d) 	mod_dir=$OPTARG
+        ;;
+    d)
+        mod_dir=$OPTARG
         log "Directory: $mod_dir"
-		;;
-	u)  update=1 # TODO: move to higher script
+        ;;
+    u)
+        update=1 # TODO: move to higher script
         log "Updating files in directory"
-		;;
-	b)  backup=1
+        ;;
+    b)
+        backup=1
         log "Copying old files to /Backup"
-		;;	
-	b)  strict=1
+        ;;
+    b)
+        strict=1
         log "Versioning set to strict"
-		;;	
-    V)  verbose=1
+        ;;
+    V)
+        verbose=1
         log "VERBOSE MODE ENABLED"
-        ;;	
+        ;;
     esac
 done
 shift $((OPTIND - 1)) # somthin somthin, I dunno
 
-if [[ -z "$mods"  ]]; then
+if [[ -z "$mods" ]]; then
     echo "Mod names can't be blank!"
     echo "$usage"
     exit 0
@@ -151,7 +160,7 @@ wait() {
 cut=0
 preCut=0
 
-cutVersion(){
+cutVersion() {
     cut=0
     preCut=0
     local ver=$1
@@ -165,7 +174,7 @@ cutVersion(){
             else
                 cut=1
             fi
-        elif [[ ( isPre -eq 1 || isRC -eq 1 ) && "${ver:i-1:1}" == "-" ]]; then # look for non prerelease version
+        elif [[ (isPre -eq 1 || isRC -eq 1) && "${ver:i-1:1}" == "-" ]]; then # look for non prerelease version
             preCut=$i-1
         fi
     done
@@ -186,7 +195,7 @@ version_is_rc=0
 version_nonPre=""
 version_major=""
 
-verifyVer(){
+verifyVer() {
 
     version_is_major=0
     version_is_pre=0
@@ -200,19 +209,19 @@ verifyVer(){
     run=1
 
     if [[ $ver =~ ^1\.[1-9][0-9]* ]]; then
-        if [[ $ver =~  ^1\.[1-9][0-9]*\.[1-9][0-9]*$ ]]; then
+        if [[ $ver =~ ^1\.[1-9][0-9]*\.[1-9][0-9]*$ ]]; then
             log "Version format looks normal"
-        elif [[ $ver =~  ^1\.[1-9][0-9]*$ ]]; then
+        elif [[ $ver =~ ^1\.[1-9][0-9]*$ ]]; then
             log "Version format looks normal, no minor version"
             version_is_major=1
-        elif [[ $ver =~  ^1\.[1-9][0-9]*-rc[1-9][0-9]*$ ]]; then
+        elif [[ $ver =~ ^1\.[1-9][0-9]*-rc[1-9][0-9]*$ ]]; then
             log "Version format looks like a release candidate"
             version_is_major=1 # assumes rcs are only for major updates
             version_is_rc=1
-        elif [[ $ver =~  ^1\.[1-9][0-9]*\.[1-9][0-9]*-pre[1-9][0-9]*$ ]]; then
+        elif [[ $ver =~ ^1\.[1-9][0-9]*\.[1-9][0-9]*-pre[1-9][0-9]*$ ]]; then
             log "Version format looks like a prerelease"
             version_is_pre=1
-        elif [[ $ver =~  ^1\.[1-9][0-9]*-pre[1-9][0-9]*$ ]]; then
+        elif [[ $ver =~ ^1\.[1-9][0-9]*-pre[1-9][0-9]*$ ]]; then
             log "Version format looks like a prerelease, no minor version"
             version_is_major=1
             version_is_pre=1
@@ -267,7 +276,7 @@ fi
 
 log
 
-getApi(){ # TODO: throw error when curl errors
+getApi() { # TODO: throw error when curl errors
     case "$1" in
     cur)
         wait
@@ -291,7 +300,7 @@ getApi(){ # TODO: throw error when curl errors
     esac
 }
 
-getApiVal(){ # TODO: Test blank/bad $2 
+getApiVal() { # TODO: Test blank/bad $2
     local val=""
     case "$1" in
     cur)
@@ -310,7 +319,7 @@ getApiVal(){ # TODO: Test blank/bad $2
         ;;
     esac
     if [[ -z "$val" || "$val" == "null" ]]; then
-        returnVal=""        
+        returnVal=""
         log "Failed to find api value: $2"
     fi
 }
@@ -319,7 +328,7 @@ getApiVal(){ # TODO: Test blank/bad $2
 hasVersion=0
 notExact=0
 
-matchVer(){
+matchVer() {
 
     local api=$1
     local focus=$2
@@ -335,27 +344,27 @@ matchVer(){
 
     log "Matching version $ver"
     getApiVal "$api" "$focus | map(select($selecter==\""$ver"\$\"))[0] | $info"
-    if [[ strict -eq 0 ]]; then # Skip if strict mode is on
+    if [[ strict -eq 0 ]]; then        # Skip if strict mode is on
         if [[ -z "$returnVal" ]]; then # An exact valid version was not found
             log "Exact version match not found"
-            if [[ version_is_rc -eq 1 ]]; then # Check all releaseCans | Will only check if given version is also a releaseCan
-                log "Checking general release candidates"
-                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-rc"\")))[0] | $info"
-                if [[ -n "$returnVal" ]]; then
-                    hasVersion=1
-                    notExact=1
-                    log "Latest release candidate found"
-                else
-                    log "General release candidate not found, checking for a major release" # Major releases are checked instead of prereleases as that may cause more trouble
-                    getApiVal "$api" "$focus | map(select($selecter==\""$ver_non"\"))[0] | $info"
+            if [[ version_is_pre -eq 1 ]]; then    # Check all prereleases
+                if [[ version_is_rc -eq 1 ]]; then # Check all releaseCans
+                    log "Checking general release candidates"
+                    getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-rc"\")))[0] | $info"
                     if [[ -n "$returnVal" ]]; then
                         hasVersion=1
                         notExact=1
-                        log "Major Release found"
+                        log "Latest release candidate found"
+                    else
+                        log "General release candidate not found, checking for a major release" # Major releases are checked instead of prereleases as that may cause more trouble
+                        getApiVal "$api" "$focus | map(select($selecter==\""$ver_non"\"))[0] | $info"
+                        if [[ -n "$returnVal" ]]; then
+                            hasVersion=1
+                            notExact=1
+                            log "Major Release found"
+                        fi
                     fi
                 fi
-            fi
-            if [[ version_is_pre -eq 1 ]]; then # Check all prereleases | Will only check here if given version is also a prerelease
                 log "Checking general prereleases"
                 getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-pre"\")))[0] | $info"
                 if [[ -n "$returnVal" ]]; then
@@ -387,7 +396,7 @@ matchVer(){
     fi
 }
 
-getMojangVer(){
+getMojangVer() {
     getApi $mojangAPI
 
     if [[ latest -eq 1 ]]; then
@@ -406,7 +415,7 @@ getMojangVer(){
         echo "Failed to verify MC version"
         exit 0
     else
-        MC_ver=${MC_ver:1:${#MC_ver}-2} 
+        MC_ver=${MC_ver:1:${#MC_ver}-2}
         log "$MC_ver"
     fi
 }
@@ -416,7 +425,7 @@ mod_found_ver=""
 mod_found_url=""
 foundMod=0
 
-getModLink(){
+getModLink() {
     local name=$1
     local id=$2
     local id_maj=${id:0:4}
@@ -425,7 +434,7 @@ getModLink(){
     returnVal="$api_cur_down/$id_maj/$id_min/$name"
 }
 
-testModVer(){
+testModVer() {
     local ver=$1
     foundMod=0
 
@@ -449,7 +458,7 @@ testModVer(){
 
 }
 
-getMod(){
+getMod() {
     local mod=$1
     local ver=$2
     mod_found_name=""
@@ -460,10 +469,10 @@ getMod(){
 
     getApi "$curseAPI" "$mod" "$ver"
     getApiVal "$curseAPI" "$api_cur_query"
-    mod_found_name="$( jq -n "$returnVal" | jq  --raw-output .[0] )"
-    mod_found_ver="$( jq -n "$returnVal" | jq --raw-output .[1] )"
+    mod_found_name="$(jq -n "$returnVal" | jq --raw-output .[0])"
+    mod_found_ver="$(jq -n "$returnVal" | jq --raw-output .[1])"
 
-    getModLink "$mod_found_name" "$( jq -n "$returnVal" | jq --raw-output .[2] )"
+    getModLink "$mod_found_name" "$(jq -n "$returnVal" | jq --raw-output .[2])"
     mod_found_url="$returnVal"
 
     testModVer "$mod_found_ver"
@@ -471,7 +480,7 @@ getMod(){
 
 curl_err=0
 
-downloadMod(){
+downloadMod() {
     local name=$1
     local url=$2
     local curl_err_msg=""
@@ -485,7 +494,6 @@ downloadMod(){
         curl_err=1
     fi
 }
-
 
 getMojangVer $version
 
