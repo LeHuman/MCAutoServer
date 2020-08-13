@@ -50,14 +50,14 @@ where:
     -h  Show this help text
     -n	Specify mod name, must be same as in mod url
             For multiple mods, surround in quotes
-    -v	Specify MC version (Default: latest)
+    -v	Specify MC version ( Default: latest )
     -d	Specify a working directory
-    -t  Specify Api request delay in seconds (Default: 2)
-    -r	Redownload and replace mods (Default:false)
-    -c	Only show changes (Default:false)
-    -u	Update mods in working directory (Default:false)
-    -b	backup old mod (Default: false)
-    -s  Enable strict version matching (Default: false)
+    -t  Specify Api request delay in seconds ( Default: 2 )
+    -r	Redownload and replace mods
+    -c	Only show changes
+    -u	Update mods in working directory
+    -b	backup old mod jars
+    -s  Enable strict version matching ( Mods must match the MC version exactly )
     -V  verbose mode
     "
 
@@ -204,25 +204,30 @@ verifyVer() {
     version_major=""
     local ver="$1"
 
-    log "Verifying version format"
+    log "Verifying version"
 
     run=1
 
     if [[ $ver =~ ^1\.[1-9][0-9]* ]]; then
         if [[ $ver =~ ^1\.[1-9][0-9]*\.[1-9][0-9]*$ ]]; then
-            log "Version format looks normal"
+            log "Version looks like a release"
         elif [[ $ver =~ ^1\.[1-9][0-9]*$ ]]; then
-            log "Version format looks normal, no minor version"
+            log "Version looks like a release, no minor version"
             version_is_major=1
-        elif [[ $ver =~ ^1\.[1-9][0-9]*-rc[1-9][0-9]*$ ]]; then
-            log "Version format looks like a release candidate"
-            version_is_major=1 # assumes rcs are only for major updates
+        elif [[ $ver =~ ^1\.[1-9][0-9]*\.[1-9][0-9]*-rc[1-9][0-9]*$ ]]; then
+            log "Version looks like a release candidate"
             version_is_rc=1
+            version_is_pre=1
+        elif [[ $ver =~ ^1\.[1-9][0-9]*-rc[1-9][0-9]*$ ]]; then
+            log "Version looks like a release candidate, no minor version"
+            version_is_rc=1
+            version_is_major=1
+            version_is_pre=1
         elif [[ $ver =~ ^1\.[1-9][0-9]*\.[1-9][0-9]*-pre[1-9][0-9]*$ ]]; then
-            log "Version format looks like a prerelease"
+            log "Version looks like a prerelease"
             version_is_pre=1
         elif [[ $ver =~ ^1\.[1-9][0-9]*-pre[1-9][0-9]*$ ]]; then
-            log "Version format looks like a prerelease, no minor version"
+            log "Version looks like a prerelease, no minor version"
             version_is_major=1
             version_is_pre=1
         else
@@ -232,7 +237,9 @@ verifyVer() {
         run=0
     fi
 
-    if [[ run -eq 1 && strict -eq 0 ]]; then
+    if [[ strict -eq 0 ]]; then
+        log "Strict mode on, skipping sub version identification"
+    elif [[ run -eq 1 ]]; then
 
         log "Getting sub versions from string"
 
@@ -247,12 +254,10 @@ verifyVer() {
             version_major="$ver"
         fi
 
-        if [[ version_is_pre -eq 1 ]]; then
-            log "Non Pre-Release Version: $version_nonPre"
-        fi
-
         if [[ version_is_rc -eq 1 ]]; then
             log "Non Release Candidate Version: $version_nonPre"
+        elif [[ version_is_pre -eq 1 ]]; then
+            log "Non Pre-Release Version: $version_nonPre"
         fi
 
     fi
@@ -345,43 +350,39 @@ matchVer() {
     log "Matching version $ver"
     getApiVal "$api" "$focus | map(select($selecter==\""$ver"\$\"))[0] | $info"
     if [[ strict -eq 0 ]]; then        # Skip if strict mode is on
-        if [[ -z "$returnVal" ]]; then # An exact valid version was not found
+        if [[ -z "$returnVal" ]]; then # An exact valid version was not found, fallback to more loose definitions
             log "Exact version match not found"
-            if [[ version_is_pre -eq 1 ]]; then    # Check all prereleases
-                if [[ version_is_rc -eq 1 ]]; then # Check all releaseCans
+            if [[ version_is_pre -eq 1 ]]; then # Check all prereleases if given version is a PR
+
+                if [[ version_is_rc -eq 1 ]]; then # Check RCs if given version is also an RC
                     log "Checking general release candidates"
                     getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-rc"\")))[0] | $info"
                     if [[ -n "$returnVal" ]]; then
                         hasVersion=1
                         notExact=1
                         log "Latest release candidate found"
-                    else
-                        log "General release candidate not found, checking for a major release" # Major releases are checked instead of prereleases as that may cause more trouble
-                        getApiVal "$api" "$focus | map(select($selecter==\""$ver_non"\"))[0] | $info"
-                        if [[ -n "$returnVal" ]]; then
-                            hasVersion=1
-                            notExact=1
-                            log "Major Release found"
-                        fi
                     fi
-                fi
-                log "Checking general prereleases"
-                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-pre"\")))[0] | $info"
-                if [[ -n "$returnVal" ]]; then
-                    hasVersion=1
-                    notExact=1
-                    log "Latest prerelease found"
-                else
-                    log "general prereleases not found, checking non prerelease"
-                    getApiVal "$api" "$focus | map(select($selecter==\""$ver_non"\"))[0] | $info"
+                fi # RC not found, fallback to prereleases
+
+                if [[ -z "$returnVal" ]]; then
+                    log "Checking general prereleases"
+                    getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_non-pre"\")))[0] | $info"
                     if [[ -n "$returnVal" ]]; then
                         hasVersion=1
                         notExact=1
-                        log "Non prerelease found"
-                    fi
+                        log "Latest prerelease found"
+                    # else
+                    #     log "general prereleases not found, checking non prerelease"
+                    #     getApiVal "$api" "$focus | map(select($selecter==\""$ver_non"\"))[0] | $info"
+                    #     if [[ -n "$returnVal" ]]; then
+                    #         hasVersion=1
+                    #         notExact=1
+                    #         log "Non prerelease found"
+                    #     fi
+                    fi # Prerelease not found
                 fi
-            fi
-            if [[ version_is_rc -eq 0 && -z "$returnVal" ]]; then # Don't check if version was found by prereleases or if looking for rcs
+            fi # If not found, Fallback to general minor versions
+            if [[-z "$returnVal" ]]; then # Don't check if version was found by prereleases
                 log "Checking latest minor release versions"
                 getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_maj.[0-9]+"\")))[0] | $info"
                 if [[ -n "$returnVal" ]]; then
@@ -392,7 +393,7 @@ matchVer() {
             fi
         fi
     else
-        log "Strict mode enabled, skipping advanced versioning"
+        log "Strict mode enabled, skipping advanced version matching"
     fi
 }
 
