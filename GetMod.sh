@@ -5,12 +5,15 @@ OPTIND=1 # Reset in case getopts has been used previously in the shell
 
 # init vars
 mods=()
-mod_final=()
+# mod_final=()
+declare -A mod_final
+mod_count=0
 mod_name=""
 version=""
 latest=1
 strict=0
 backup=0
+update=0
 replace=0
 mod_dir="/"
 verbose=0
@@ -20,6 +23,7 @@ timeout=2
 api_cur_call="https://api.cfwidget.com/minecraft/mc-mods/"
 api_cur_down="https://media.forgecdn.net/files"
 api_cur_query=".download | [.name, .version, .id]"
+api_cur_query_id=".id"
 api_cur_val=""
 api_moj_call="https://launchermeta.mojang.com/mc/game/version_manifest.json"
 api_moj_entry_latest=".latest.release"
@@ -48,7 +52,8 @@ Currently, mod dependancies are not resolved
 
 where:
     -h  Show this help text
-    -n	Specify mod name, must be same as in mod url
+    -n	Specify mod project ids
+            names are also usable and must be same as in mod url ( not as reliable )
             For multiple mods, surround in quotes
     -v	Specify MC version ( Default: latest )
     -d	Specify a working directory
@@ -67,33 +72,28 @@ log() {
     fi
 }
 
+MOD_FAIL=-1
+MOD_INIT=0
+MOD_MATCH=1
+MOD_DOWNLOAD=3
+MOD_SUCCESS=4
+
 newModEntry() {
 
-    local name="$1"
-    local state="$2"
-    local id="$3"
-    local ver="$4"
-    local url="$5"
+    local name="$2"
+    local state=$MOD_INIT
+    local ver="x.x.x"
+    local id="123456"
+    local id="name.jar"
+    # local entry=($name,$state,$ver,$exact)
 
-    # Is this how it's done?
-    local JSONStr="
-    {
-        \"name\": \"$name\",
-        \"success\": \"$state\",
-        \"id\": \"$id\",
-        \"version\": \"$ver\",
-        \"download\": \"$url\"
-    }"
-
-    JSONStr=$(jq -n "$JSONStr")
-
-    echo "New Final Mod status $JSONStr"
-
-    mod_final[${#mod_final[@]}]="$JSONStr"
+    mod_final[$mod_count, 0]=$name
+    mod_final[$mod_count, 1]=$state
+    mod_final[$mod_count, 2]=$ver
+    mod_final[$mod_count, 3]=$id
+    mod_final[$mod_count, 4]=$exact
+    mod_count=$(($mod_count + 1))
 }
-
-newModEntry "lithlium" "Fsdf" "fsd" "fsd" "fdsfs"
-exit 0
 
 while getopts "h?rcmusbVv:n:d:" opt; do
     case "$opt" in
@@ -109,6 +109,9 @@ while getopts "h?rcmusbVv:n:d:" opt; do
     n)
         mods=($OPTARG)
         log "Mod Names: ${mods[*]}"
+        for i in "${mods[@]}"; do
+            newModEntry "$mod_final" "$i"
+        done
         ;;
     r)
         replace=1
@@ -142,7 +145,7 @@ while getopts "h?rcmusbVv:n:d:" opt; do
 done
 shift $((OPTIND - 1)) # somthin somthin, I dunno
 
-if [[ -z "$mods" ]]; then
+if [[ -z "$mods" && update -eq 0 ]]; then
     echo "Mod names can't be blank!"
     echo "$usage"
     exit 0
@@ -237,7 +240,7 @@ verifyVer() {
         run=0
     fi
 
-    if [[ strict -eq 0 ]]; then
+    if [[ strict -eq 1 ]]; then
         log "Strict mode on, skipping sub version identification"
     elif [[ run -eq 1 ]]; then
 
@@ -348,7 +351,7 @@ matchVer() {
     notExact=0
 
     log "Matching version $ver"
-    getApiVal "$api" "$focus | map(select($selecter==\""$ver"\$\"))[0] | $info"
+    getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver"\$\")))[0] | $info"
     if [[ strict -eq 0 ]]; then        # Skip if strict mode is on
         if [[ -z "$returnVal" ]]; then # An exact valid version was not found, fallback to more loose definitions
             log "Exact version match not found"
@@ -382,15 +385,18 @@ matchVer() {
                     fi # Prerelease not found
                 fi
             fi # If not found, Fallback to general minor versions
-            if [[-z "$returnVal" ]]; then # Don't check if version was found by prereleases
+
+            if [[ -z "$returnVal" ]]; then # Don't check if version was found by prereleases
                 log "Checking latest minor release versions"
-                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_maj.[0-9]+"\")))[0] | $info"
+                getApiVal "$api" "$focus | map(select($selecter|test(\"^"$ver_maj.[0-9]+$"\")))[0] | $info"
                 if [[ -n "$returnVal" ]]; then
                     hasVersion=1
                     notExact=1
                     log "Latest minor release version found"
                 fi
             fi
+        else
+            hasVersion=1
         fi
     else
         log "Strict mode enabled, skipping advanced version matching"
@@ -422,6 +428,7 @@ getMojangVer() {
 }
 
 mod_found_name=""
+mod_id=""
 mod_found_ver=""
 mod_found_url=""
 foundMod=0
@@ -447,7 +454,10 @@ testModVer() {
     elif [[ "$ver" =~ "$MC_ver_non"-pre[1-9][0-9]*$ ]]; then
         foundMod=1
         log "Mod matches general prerelease version $MC_ver_non"
-    elif [[ "$ver" =~ "$MC_ver_non"[1-9][0-9]*$ ]]; then
+    elif [[ "$ver" =~ "$MC_ver_non"-rc[1-9][0-9]*$ ]]; then
+        foundMod=1
+        log "Mod matches general release candidate version $MC_ver_non"
+    elif [[ "$ver" =~ "$MC_ver_non"[.][1-9][0-9]*$ ]]; then
         foundMod=1
         log "Mod matches non prerelease version $MC_ver_non"
     elif [[ "$ver" =~ "$MC_ver_maj"[.]{0,1}[0-9]*$ ]]; then
@@ -465,10 +475,13 @@ getMod() {
     mod_found_name=""
     mod_found_ver=""
     mod_found_url=""
+    mod_id=""
 
     log "Getting mod $mod version $ver"
 
     getApi "$curseAPI" "$mod" "$ver"
+    getApiVal "$curseAPI" "$api_cur_query_id"
+    mod_id="$(jq -n "$returnVal" | jq --raw-output .)"
     getApiVal "$curseAPI" "$api_cur_query"
     mod_found_name="$(jq -n "$returnVal" | jq --raw-output .[0])"
     mod_found_ver="$(jq -n "$returnVal" | jq --raw-output .[1])"
@@ -490,8 +503,8 @@ downloadMod() {
     wait
     echo "Downloading mod $name"
     curl_err_msg=$(curl -sS $url -o $name)
-    if [[ -z "$curl_err_msg" ]]; then
-        log "$curl_err_msg"
+    if [[ -n "$curl_err_msg" ]]; then
+        echo "CURL ERROR: $curl_err_msg"
         curl_err=1
     fi
 }
@@ -516,29 +529,66 @@ log "Version search order"
 log "Target MC Ver: $MC_ver"
 log "NonPre MC Ver: $MC_ver_non"
 log "Major MC Ver: $MC_ver_maj.x"
+log
+log "   Checking Mods"
+log "--------------------"
 
-log "Beginning to check mods"
+for i in $(seq 0 $((${mod_count} - 1))); do
+    mod_name=${mod_final[$i, 0]}
+    mod_final[$i, 1]=$MOD_MATCH
 
-getMod $mod_name "$MC_ver"
+    log
+    log "----[ Looking for $mod_name ]----"
 
-if [[ foundMod -eq 0 ]]; then
-    log "Could not find mod, retrying nonPre"
-    getMod $mod_name "$MC_ver_non"
-fi
+    getMod $mod_name "$MC_ver"
 
-if [[ foundMod -eq 0 ]]; then
-    log "Could not find mod, retrying major"
-    getMod $mod_name "$MC_ver_maj"
-fi
+    if [[ foundMod -eq 0 ]]; then
+        log "Could not find mod, retrying nonPre"
+        getMod $mod_name "$MC_ver_non"
+    fi
 
-if [[ foundMod -eq 1 ]]; then
-    echo "Got Mod $mod_found_name   Ver: $mod_found_ver"
-    log "URL: $mod_found_url"
-    foundMod=1
-else
-    echo "Failed to find mod $mod_name $MC_ver"
-fi
+    if [[ foundMod -eq 0 ]]; then
+        log "Could not find mod, retrying major"
+        getMod $mod_name "$MC_ver_maj"
+    fi
 
-if [[ foundMod -eq 1 ]]; then
-    downloadMod "$mod_name" "$mod_found_url"
-fi
+    if [[ foundMod -eq 1 ]]; then
+        echo "Got Mod $mod_found_name   Ver: $mod_found_ver"
+        mod_final[$i, 2]="$mod_found_ver"
+        log "URL: $mod_found_url"
+        foundMod=1
+    fi
+
+    if [[ foundMod -eq 1 ]]; then
+        mod_final[$i, 1]=$MOD_DOWNLOAD
+        mod_final[$i, 4]="$mod_found_name"
+        for i in {1..3}; do
+            downloadMod "$mod_found_name" "$mod_found_url"
+            if [[ curl_err -eq 0 ]]; then
+                break
+            fi
+        done
+    fi
+
+    if [[ curl_err -eq 0 && foundMod -eq 1 ]]; then
+        mod_final[$i, 3]="$mod_id"
+        mod_final[$i, 1]=$MOD_SUCCESS
+        log "Finished getting mod $mod_name"
+    else
+        mod_final[$i, 1]=$MOD_FAIL
+        echo "Failed to get mod $mod_name $MC_ver"
+    fi
+
+done
+
+log
+log "Mod Final Values"
+
+for i in $(seq 0 $((${mod_count} - 1))); do
+    log
+    log "${mod_final[$i, 0]}"
+    log "${mod_final[$i, 1]}"
+    log "${mod_final[$i, 2]}"
+    log "${mod_final[$i, 3]}"
+    log "${mod_final[$i, 4]}"
+done

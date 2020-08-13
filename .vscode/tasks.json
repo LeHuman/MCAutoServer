@@ -27,7 +27,7 @@
         {
             "label": "Test Multiple",
             "type": "shell",
-            "command": "./GetMod.sh -V -n \"lithium AutoRegLib iron-chests phosphor\" -r -v 1.16.2",
+            "command": "./GetMod.sh -V -n \"lithium 372124\" -r -v 1.16.2",
             "problemMatcher": [],
             "group": "test"
         }
