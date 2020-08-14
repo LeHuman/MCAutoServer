@@ -4,7 +4,7 @@ Smushed some shell code together into some scripts that automates the creation a
 
 Making use of the curse API it should be able to keeps compatible mods up to date with the MC server version
 
-Support for Pre releases / Release candidates but
+Support for Pre releases / Release candidates
 
 **Snapshots Beta/Alphas are not currently being supported** 
 
