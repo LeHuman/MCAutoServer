@@ -1,6 +1,6 @@
 # MC AUTO SERVER
 
-Smushed some shell code together into some scripts that automates the creation and updating a MC server
+Smushed some shell code into some scripts that automate the creation and updating of a MC server
 
 Making use of the curse API it should be able to keeps compatible mods up to date with the MC server version
 
