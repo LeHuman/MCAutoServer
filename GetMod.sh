@@ -59,7 +59,7 @@ where:
     -v	Specify MC version ( Default: latest )
     -d	Specify a working directory
     -t  Specify Api request delay in seconds ( Default: 2 )
-    -r	Redownload and replace mods
+    -r	Download mods even if they already exist
     -c	Only show changes
     -u	Update mods in working directory ( NOT IMPLEMENTED )
     -b	backup old mod jars
@@ -136,13 +136,13 @@ while getopts "h?rcmusbVv:n:d:" opt; do
         ;;
     r)
         replace=1
-        log "Replacing Files"
+        log "Replacing existing files"
         ;;
     c)
         check=1
         log "Read only mode"
         ;;
-    d)
+    d) # TODO: actually change directory
         mod_dir=$OPTARG
         log "Directory: $mod_dir"
         ;;
@@ -170,6 +170,17 @@ if [[ -z "$mods" && update -eq 0 ]]; then
     echo "Mod names can't be blank!"
     echo "$usage"
     exit 0
+fi
+
+if [[ update -eq 1 ]]; then
+    if [[ -f modlist ]]; then
+        echo "Cannot update without usable modlist in working directory"
+        echo "A modlist is generated on first proper usage"
+        echo "$usage"
+        exit 0
+    else
+        # TODO: Get mods to update here
+    fi
 fi
 
 wait() {
@@ -522,6 +533,7 @@ downloadMod() {
     wait
     echo "Downloading mod $name"
     curl_err_msg=$(curl -sS $url -o $name)
+
     if [[ -n "$curl_err_msg" ]]; then
         echo "CURL ERROR: $curl_err_msg"
         curl_err=1
@@ -591,7 +603,11 @@ for i in $(seq 0 $((${mod_count} - 1))); do
     if [[ foundMod -eq 1 ]]; then
         mod_final[$i, 1]=$MOD_DOWNLOAD
         for k in {1..3}; do
-            downloadMod "$mod_found_name" "$mod_found_url"
+            if [[ -f $mod_found_name && $replace -eq 0 ]]; then
+                log "Mod already exists"
+            else
+                downloadMod "$mod_found_name" "$mod_found_url"
+            fi
             if [[ curl_err -eq 0 ]]; then
                 break
             fi
@@ -629,7 +645,7 @@ log "Saving modlist data"
 # Store important mod info for update function
 for n in $(seq 0 $((${mod_count} - 1))); do
     if [[ "${mod_final[$n, 1]}"=="$MOD_SUCCESS" ]]; then
-        returnVal=(${mod_final[$n, 0]}, ${mod_final[$n, 2]}, ${mod_final[$n, 3]}, ${mod_final[$n, 4]})
-        echo "${returnVal[*]}" > modlist
+        returnVal=(${mod_final[$n, 0]} ${mod_final[$n, 2]} ${mod_final[$n, 3]} ${mod_final[$n, 4]})
+        echo "${returnVal[*]}" >modlist
     fi
 done
