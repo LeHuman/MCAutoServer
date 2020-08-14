@@ -24,6 +24,7 @@ api_cur_call="https://api.cfwidget.com/minecraft/mc-mods/"
 api_cur_down="https://media.forgecdn.net/files"
 api_cur_query=".download | [.name, .version, .id]"
 api_cur_query_id=".id"
+api_cur_query_title=".title"
 api_cur_val=""
 api_moj_call="https://launchermeta.mojang.com/mc/game/version_manifest.json"
 api_moj_entry_latest=".latest.release"
@@ -60,7 +61,7 @@ where:
     -t  Specify Api request delay in seconds ( Default: 2 )
     -r	Redownload and replace mods
     -c	Only show changes
-    -u	Update mods in working directory
+    -u	Update mods in working directory ( NOT IMPLEMENTED )
     -b	backup old mod jars
     -s  Enable strict version matching ( Mods must match the MC version exactly )
     -V  verbose mode
@@ -77,6 +78,26 @@ MOD_INIT=0
 MOD_MATCH=1
 MOD_DOWNLOAD=3
 MOD_SUCCESS=4
+
+mod_status() {
+    case "$1" in
+    $MOD_FAIL)
+        returnVal="FAIL"
+        ;;
+    $MOD_INIT)
+        returnVal="INITALIZED"
+        ;;
+    $MOD_MATCH)
+        returnVal="MATCHING MOD"
+        ;;
+    $MOD_DOWNLOAD)
+        returnVal="DOWNLOADING MOD"
+        ;;
+    $MOD_SUCCESS)
+        returnVal="SUCCESS"
+        ;;
+    esac
+}
 
 newModEntry() {
 
@@ -109,8 +130,8 @@ while getopts "h?rcmusbVv:n:d:" opt; do
     n)
         mods=($OPTARG)
         log "Mod Names: ${mods[*]}"
-        for i in "${mods[@]}"; do
-            newModEntry "$mod_final" "$i"
+        for m in "${mods[@]}"; do
+            newModEntry "$mod_final" "$m"
         done
         ;;
     r)
@@ -153,7 +174,7 @@ fi
 
 wait() {
     echo -n "Waiting for request buffer"
-    for i in $(seq 1 $timeout); do
+    for t in $(seq 1 $timeout); do
         echo -n "."
         sleep 1
     done
@@ -170,15 +191,15 @@ cutVersion() {
     local isRC=$3
     local isPre=$2
 
-    for i in $(seq 1 ${#ver}); do
-        if [[ "${ver:i-1:1}" == "." ]]; then
+    for v in $(seq 1 ${#ver}); do
+        if [[ "${ver:v-1:1}" == "." ]]; then
             if [[ cut -eq 1 ]]; then
-                cut=$i-1
+                cut=$v-1
             else
                 cut=1
             fi
-        elif [[ (isPre -eq 1 || isRC -eq 1) && "${ver:i-1:1}" == "-" ]]; then # look for non prerelease version
-            preCut=$i-1
+        elif [[ (isPre -eq 1 || isRC -eq 1) && "${ver:v-1:1}" == "-" ]]; then # look for non prerelease version
+            preCut=$v-1
         fi
     done
 
@@ -278,13 +299,7 @@ verifyVer() {
 
 }
 
-if [[ "$latest" == "0" ]]; then # Verify format of initial input version
-    verifyVer "$version"
-fi
-
-log
-
-getApi() { # TODO: throw error when curl errors
+getApi() {
     case "$1" in
     cur)
         wait
@@ -428,6 +443,7 @@ getMojangVer() {
 }
 
 mod_found_name=""
+mod_proj_name=""
 mod_id=""
 mod_found_ver=""
 mod_found_url=""
@@ -473,6 +489,7 @@ getMod() {
     local mod=$1
     local ver=$2
     mod_found_name=""
+    mod_proj_name=""
     mod_found_ver=""
     mod_found_url=""
     mod_id=""
@@ -482,6 +499,8 @@ getMod() {
     getApi "$curseAPI" "$mod" "$ver"
     getApiVal "$curseAPI" "$api_cur_query_id"
     mod_id="$(jq -n "$returnVal" | jq --raw-output .)"
+    getApiVal "$curseAPI" "$api_cur_query_title"
+    mod_proj_name="$(jq -n "$returnVal" | jq --raw-output .)"
     getApiVal "$curseAPI" "$api_cur_query"
     mod_found_name="$(jq -n "$returnVal" | jq --raw-output .[0])"
     mod_found_ver="$(jq -n "$returnVal" | jq --raw-output .[1])"
@@ -509,6 +528,13 @@ downloadMod() {
     fi
 }
 
+log
+log "-----[ Verifying MC version ]-----"
+
+if [[ "$latest" == "0" ]]; then # Verify format of initial input version
+    verifyVer "$version"
+fi
+
 getMojangVer $version
 
 verifyVer "$MC_ver"
@@ -523,22 +549,21 @@ fi
 if [[ notExact -eq 1 ]]; then
     echo "Warning: Could not verify exact MC version, using version $MC_ver"
 fi
-log
 
-log "Version search order"
+log
+log "-----[ Version search order ]-----"
 log "Target MC Ver: $MC_ver"
 log "NonPre MC Ver: $MC_ver_non"
 log "Major MC Ver: $MC_ver_maj.x"
 log
-log "   Checking Mods"
-log "--------------------"
+log "---------[ Checking Mods ]--------"
 
 for i in $(seq 0 $((${mod_count} - 1))); do
     mod_name=${mod_final[$i, 0]}
     mod_final[$i, 1]=$MOD_MATCH
 
     log
-    log "----[ Looking for $mod_name ]----"
+    log "----< Looking for $mod_name | #$i >----"
 
     getMod $mod_name "$MC_ver"
 
@@ -552,17 +577,20 @@ for i in $(seq 0 $((${mod_count} - 1))); do
         getMod $mod_name "$MC_ver_maj"
     fi
 
+    mod_final[$i, 0]="$mod_proj_name"
+    mod_final[$i, 2]="$mod_found_ver"
+    mod_final[$i, 3]="$mod_id"
+    mod_final[$i, 4]="$mod_found_name"
+
     if [[ foundMod -eq 1 ]]; then
         echo "Got Mod $mod_found_name   Ver: $mod_found_ver"
-        mod_final[$i, 2]="$mod_found_ver"
         log "URL: $mod_found_url"
         foundMod=1
     fi
 
     if [[ foundMod -eq 1 ]]; then
         mod_final[$i, 1]=$MOD_DOWNLOAD
-        mod_final[$i, 4]="$mod_found_name"
-        for i in {1..3}; do
+        for k in {1..3}; do
             downloadMod "$mod_found_name" "$mod_found_url"
             if [[ curl_err -eq 0 ]]; then
                 break
@@ -571,7 +599,6 @@ for i in $(seq 0 $((${mod_count} - 1))); do
     fi
 
     if [[ curl_err -eq 0 && foundMod -eq 1 ]]; then
-        mod_final[$i, 3]="$mod_id"
         mod_final[$i, 1]=$MOD_SUCCESS
         log "Finished getting mod $mod_name"
     else
@@ -582,13 +609,27 @@ for i in $(seq 0 $((${mod_count} - 1))); do
 done
 
 log
-log "Mod Final Values"
+log "-------[ Mod Final Values ]-------"
 
-for i in $(seq 0 $((${mod_count} - 1))); do
+for n in $(seq 0 $((${mod_count} - 1))); do
     log
-    log "${mod_final[$i, 0]}"
-    log "${mod_final[$i, 1]}"
-    log "${mod_final[$i, 2]}"
-    log "${mod_final[$i, 3]}"
-    log "${mod_final[$i, 4]}"
+    log "${mod_final[$n, 0]}"
+    mod_status "${mod_final[$n, 1]}"
+    log "$returnVal"
+    log "${mod_final[$n, 2]}"
+    log "${mod_final[$n, 3]}"
+    log "${mod_final[$n, 4]}"
+done
+
+log
+log "Touching modlist file"
+touch modlist
+log "Saving modlist data"
+
+# Store important mod info for update function
+for n in $(seq 0 $((${mod_count} - 1))); do
+    if [[ "${mod_final[$n, 1]}"=="$MOD_SUCCESS" ]]; then
+        returnVal=(${mod_final[$n, 0]}, ${mod_final[$n, 2]}, ${mod_final[$n, 3]}, ${mod_final[$n, 4]})
+        echo "${returnVal[*]}" > modlist
+    fi
 done
